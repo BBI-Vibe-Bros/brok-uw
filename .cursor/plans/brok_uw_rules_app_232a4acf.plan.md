@@ -4,40 +4,40 @@ overview: Build a chatbot-style underwriting guidance tool backed by a structure
 todos:
   - id: phase1-scaffold
     content: "Phase 1: Scaffold Next.js project with TypeScript, Tailwind, shadcn/ui, Supabase client libs"
-    status: in_progress
+    status: completed
   - id: phase1-db
     content: "Phase 1: Create Supabase project, run all database migrations (carriers, source_documents, rules, drug_rules, profiles, conversations, messages, rule_versions), set up RLS policies"
-    status: pending
+    status: completed
   - id: phase1-auth
     content: "Phase 1: NPN-based auth -- signup with Name/Phone/Email/NPN, cross-project lookup against Atlas agents table, free tier if Brock agent, lead capture + paywall stub if not"
-    status: pending
+    status: completed
   - id: phase1-chat-page
     content: "Phase 1: Build the standalone chat page -- login screen + full-screen chat interface, persistent disclaimer banner, responsive/PWA-ready"
-    status: pending
+    status: completed
   - id: phase2-upload
     content: "Phase 2: Build admin PDF upload UI with Supabase Storage integration, carrier/doc-type tagging"
-    status: pending
+    status: completed
   - id: phase2-extraction
     content: "Phase 2: Build Marker + AI extraction pipeline -- Marker (Datalab API) converts PDFs to markdown with citations, structured extraction with JSON schemas for rules/drugs/BMI, AI normalization"
-    status: pending
+    status: completed
   - id: phase2-admin-review
     content: "Phase 2: Build admin review UI -- pending rules table, inline editing, approve/reject, version tracking, staleness indicators"
-    status: pending
+    status: completed
   - id: phase2-batch-ingest
     content: "Phase 2: Batch-ingest all 31 existing UW guide PDFs through the extraction pipeline"
-    status: pending
+    status: completed
   - id: phase3-query-engine
     content: "Phase 3: Build query API -- AI parses natural language to structured query, rules search engine matches against Postgres, ranking + confidence scoring, AI explains results"
-    status: pending
+    status: completed
   - id: phase3-chat-ux
-    content: "Phase 3: Polish chat UX -- guided intake within chat flow, rich result cards inline (knockouts, citations, follow-ups), carrier comparison, disclaimers on every response"
-    status: pending
+    content: "Phase 3: Chat UX v1 -- rich carrier result cards, disclaimers, conversation persistence; guided intake / comparison deferred"
+    status: completed
   - id: phase3-embed
-    content: "Phase 3: Build embeddable widget -- iframe-ready standalone route + optional JS embed script for GoGuruX and other tools"
-    status: pending
+    content: "Phase 3: Iframe embed mode (/chat?embed=true) + postMessage hook; full JS widget deferred to Phase 4"
+    status: completed
   - id: phase4-privacy
-    content: "Phase 4: Privacy controls (ephemeral prompts, PHI-free logging), audit logging, subscription gate stubs, PWA manifest for mobile"
-    status: pending
+    content: "Phase 4: Privacy controls (ephemeral prompts, PHI-free logging), audit logging, subscription gate stubs, PWA manifest for mobile, JS embed widget"
+    status: completed
 isProject: false
 ---
 
