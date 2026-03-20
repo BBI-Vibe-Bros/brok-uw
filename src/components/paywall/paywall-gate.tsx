@@ -1,6 +1,6 @@
 "use client";
 
-import { Shield, Lock, Phone, Mail } from "lucide-react";
+import { Shield, Lock, Phone, Mail, LogOut } from "lucide-react";
 
 interface PaywallGateProps {
   agentName?: string | null;
@@ -79,9 +79,15 @@ export function PaywallGate({ agentName }: PaywallGateProps) {
           </a>
         </div>
 
-        <p className="text-[10px] text-slate-400">
-          Already have access? Try logging in with the email your subscription is under.
-        </p>
+        <form action="/api/auth/signout" method="POST" className="pt-2">
+          <button
+            type="submit"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            <LogOut className="h-3 w-3" />
+            Sign out and use a different account
+          </button>
+        </form>
       </div>
     </div>
   );
