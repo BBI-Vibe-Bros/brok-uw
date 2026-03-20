@@ -152,7 +152,7 @@ export default function LoginPage() {
 
           {mode === "signup" ? (
             <form onSubmit={handleSignup} className="space-y-4">
-              <div>
+              <div className="space-y-1.5">
                 <Label htmlFor="full_name">Full Name</Label>
                 <Input
                   id="full_name"
@@ -162,7 +162,7 @@ export default function LoginPage() {
                   required
                 />
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <Label htmlFor="phone">Phone</Label>
                 <Input
                   id="phone"
@@ -172,7 +172,7 @@ export default function LoginPage() {
                   placeholder="(555) 123-4567"
                 />
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
@@ -183,7 +183,7 @@ export default function LoginPage() {
                   required
                 />
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <Label htmlFor="npn">NPN (National Producer Number)</Label>
                 <Input
                   id="npn"
@@ -192,11 +192,8 @@ export default function LoginPage() {
                   placeholder="12345678"
                   required
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Brock agents get free access. Your NPN will be verified.
-                </p>
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
@@ -214,7 +211,7 @@ export default function LoginPage() {
             </form>
           ) : (
             <form onSubmit={handleLogin} className="space-y-4">
-              <div>
+              <div className="space-y-1.5">
                 <Label htmlFor="login-email">Email</Label>
                 <Input
                   id="login-email"
@@ -225,7 +222,7 @@ export default function LoginPage() {
                   required
                 />
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <Label htmlFor="login-password">Password</Label>
                 <Input
                   id="login-password"
