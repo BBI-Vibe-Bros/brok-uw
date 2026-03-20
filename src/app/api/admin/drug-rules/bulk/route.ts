@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/auth/admin";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createAdminRouteClient } from "@/lib/supabase/server";
 
 export async function POST(request: NextRequest) {
   const auth = await requireAdminAuth();
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid status" }, { status: 400 });
   }
 
-  const supabase = createServiceClient();
+  const supabase = await createAdminRouteClient();
   const { error } = await supabase.from("drug_rules").update({ status }).in("id", ids);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

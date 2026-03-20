@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createAdminRouteClient } from "@/lib/supabase/server";
 import { requireAdminAuth } from "@/lib/auth/admin";
 
 function buildSlug(value: string) {
@@ -17,7 +17,7 @@ export async function GET() {
     return auth;
   }
 
-  const supabase = createServiceClient();
+  const supabase = await createAdminRouteClient();
   const { data, error } = await supabase
     .from("carriers")
     .select("id, name, slug, states_available, created_at")
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid carrier slug" }, { status: 400 });
   }
 
-  const supabase = createServiceClient();
+  const supabase = await createAdminRouteClient();
   const { data, error } = await supabase
     .from("carriers")
     .insert({

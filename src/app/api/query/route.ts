@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createAdminRouteClient, createClient } from "@/lib/supabase/server";
 import { parseUserQuery } from "@/lib/ai/prompts/parse-query";
 import { explainResults } from "@/lib/ai/prompts/explain-results";
 import { searchDrugRules } from "@/lib/db/queries/drug-search";
@@ -63,8 +64,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const svcForProfile = createServiceClient();
-  const { data: profile } = await svcForProfile
+  const { data: profile } = await supabase
     .from("profiles")
     .select("subscription_tier, is_brock_agent")
     .eq("id", user.id)
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Message is required" }, { status: 400 });
   }
 
-  const svc = createServiceClient();
+  const svc = await createAdminRouteClient();
   let conversationId = conversationIdInput;
 
   try {
@@ -252,7 +252,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function persistExchange(
-  svc: ReturnType<typeof createServiceClient>,
+  svc: SupabaseClient,
   userId: string,
   existingConversationId: string | null,
   userContent: string,

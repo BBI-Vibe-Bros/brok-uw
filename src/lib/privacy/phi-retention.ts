@@ -1,4 +1,4 @@
-import { createServiceClient } from "@/lib/supabase/server";
+import { createAdminRouteClient, createServiceClient } from "@/lib/supabase/server";
 
 const DEFAULT_RETENTION_DAYS = 90;
 
@@ -10,7 +10,7 @@ export async function setPhiExpiry(
   conversationId: string,
   retentionDays = DEFAULT_RETENTION_DAYS
 ) {
-  const svc = createServiceClient();
+  const svc = await createAdminRouteClient();
   const expiresAt = new Date(
     Date.now() + retentionDays * 24 * 60 * 60 * 1000
   ).toISOString();

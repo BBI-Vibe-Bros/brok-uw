@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/auth/admin";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createAdminRouteClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdminAuth();
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   const documentId = searchParams.get("document_id");
   const limit = Math.min(Number(searchParams.get("limit") ?? 200), 500);
 
-  const supabase = createServiceClient();
+  const supabase = await createAdminRouteClient();
   let q = supabase
     .from("rules")
     .select(

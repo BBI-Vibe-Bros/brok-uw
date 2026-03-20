@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/auth/admin";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createAdminRouteClient } from "@/lib/supabase/server";
 import { logAudit } from "@/lib/audit/log";
 import { DOCUMENT_TYPE_MEDSUPP_APPLICATION } from "@/lib/documents/document-types";
 
@@ -12,7 +12,7 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ i
   if (auth instanceof NextResponse) return auth;
 
   const { id: documentId } = await context.params;
-  const supabase = createServiceClient();
+  const supabase = await createAdminRouteClient();
   const now = new Date().toISOString();
 
   const { data: doc, error: docError } = await supabase

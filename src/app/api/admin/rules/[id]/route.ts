@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/auth/admin";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createAdminRouteClient } from "@/lib/supabase/server";
 
 export async function PATCH(
   request: NextRequest,
@@ -11,7 +11,7 @@ export async function PATCH(
 
   const { id } = await context.params;
   const body = await request.json();
-  const supabase = createServiceClient();
+  const supabase = await createAdminRouteClient();
 
   const { data: existing, error: fetchError } = await supabase
     .from("rules")

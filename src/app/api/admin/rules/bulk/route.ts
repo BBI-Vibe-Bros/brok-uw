@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/auth/admin";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createAdminRouteClient } from "@/lib/supabase/server";
 import { logAudit } from "@/lib/audit/log";
 
 export async function POST(request: NextRequest) {
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "status must be verified, rejected, or pending_review" }, { status: 400 });
   }
 
-  const supabase = createServiceClient();
+  const supabase = await createAdminRouteClient();
   const now = new Date().toISOString();
 
   const patch: Record<string, unknown> = { status };

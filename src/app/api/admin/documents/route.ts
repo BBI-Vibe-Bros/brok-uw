@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createAdminRouteClient } from "@/lib/supabase/server";
 import { requireAdminAuth } from "@/lib/auth/admin";
 import { logAudit } from "@/lib/audit/log";
 import { isAdminDocumentType } from "@/lib/documents/document-types";
@@ -22,7 +22,7 @@ export async function GET() {
     return auth;
   }
 
-  const supabase = createServiceClient();
+  const supabase = await createAdminRouteClient();
   const { data, error } = await supabase
     .from("source_documents")
     .select(
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
   }
 
   const bucket = process.env.SUPABASE_STORAGE_BUCKET || DEFAULT_BUCKET;
-  const supabase = createServiceClient();
+  const supabase = await createAdminRouteClient();
 
   const safeName = sanitizeFileName(file.name);
   const storagePath = `${carrierId}/${Date.now()}-${randomUUID()}-${safeName}`;

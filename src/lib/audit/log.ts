@@ -1,4 +1,4 @@
-import type { createServiceClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 type AuditAction =
   | "query"
@@ -15,7 +15,7 @@ type AuditAction =
  * Uses the service client so RLS INSERT policy passes.
  */
 export async function logAudit(
-  svc: ReturnType<typeof createServiceClient>,
+  svc: SupabaseClient,
   userId: string | null,
   action: AuditAction,
   resourceType?: string | null,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/auth/admin";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createAdminRouteClient } from "@/lib/supabase/server";
 import {
   DOCUMENT_TYPE_MEDSUPP_APPLICATION,
   DOCUMENT_TYPE_UW_GUIDE,
@@ -24,7 +24,7 @@ export async function GET() {
   const auth = await requireAdminAuth();
   if (auth instanceof NextResponse) return auth;
 
-  const supabase = createServiceClient();
+  const supabase = await createAdminRouteClient();
   const { data: carriers, error: cErr } = await supabase
     .from("carriers")
     .select("id, name, slug, states_available, created_at");
@@ -38,9 +38,10 @@ export async function GET() {
 
   if (dErr) return NextResponse.json({ error: dErr.message }, { status: 500 });
 
-  const { data: ruleCounts } = await supabase
+  const { data: ruleCounts, error: rErr } = await supabase
     .from("rules")
     .select("carrier_id, status");
+  if (rErr) return NextResponse.json({ error: rErr.message }, { status: 500 });
 
   const latestByCarrier = new Map<
     string,
@@ -114,7 +115,9 @@ export async function GET() {
     appsByCarrier.set(d.carrier_id, list);
   }
 
-  const sortedCarriers = [...rows].sort((a, b) => a.name.localeCompare(b.name));
+  const sortedCarriers = [...rows].sort((a, b) =>
+    (a.name ?? "").localeCompare(b.name ?? "", undefined, { sensitivity: "base" })
+  );
   const directory_rows = sortedCarriers.flatMap((g) => {
     const guideRow = {
       row_key: `${g.carrier_id}-uw_guide`,
