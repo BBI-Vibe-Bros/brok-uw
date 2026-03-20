@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Shield, ArrowRight, UserPlus, LogIn } from "lucide-react";
+import { PaywallGate } from "@/components/paywall/paywall-gate";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -85,19 +86,19 @@ export default function LoginPage() {
     }
   }
 
-  if (signupSuccess) {
+  if (signupSuccess && isBrockAgent === false) {
+    return <PaywallGate agentName={form.full_name} />;
+  }
+
+  if (signupSuccess && isBrockAgent) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <Shield className="mx-auto h-12 w-12 text-emerald-600 mb-2" />
-            <CardTitle className="text-2xl">
-              {isBrockAgent ? "Welcome, Brock Agent!" : "Account Created"}
-            </CardTitle>
+            <CardTitle className="text-2xl">Welcome, Brock Agent!</CardTitle>
             <CardDescription>
-              {isBrockAgent
-                ? "Your NPN was verified. You have full access."
-                : "Your information has been saved. A subscription is required for full access."}
+              Your NPN was verified. You have full access.
             </CardDescription>
           </CardHeader>
           <CardContent>

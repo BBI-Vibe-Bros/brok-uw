@@ -20,7 +20,7 @@ export function PaywallGate({ agentName }: PaywallGateProps) {
           </h1>
           <p className="text-sm text-slate-500 leading-relaxed">
             BrokUW gives agents instant AI-powered Medicare Supplement
-            underwriting guidance — conditions, meds, carrier comparisons, all
+            underwriting guidance — conditions, medications, carrier comparisons, all
             in one chat.
           </p>
         </div>
@@ -29,7 +29,7 @@ export function PaywallGate({ agentName }: PaywallGateProps) {
           <div className="flex items-center gap-3">
             <Lock className="h-5 w-5 text-amber-500 shrink-0" />
             <p className="text-sm text-slate-700 text-left">
-              Full access is available to <strong>Brock Insurance</strong>{" "}
+              Full access is available to <strong>Brock Partners</strong>{" "}
               agents at no cost. If you&apos;re not with Brock, contact us to
               get set up with a subscription.
             </p>
@@ -64,14 +64,14 @@ export function PaywallGate({ agentName }: PaywallGateProps) {
 
         <div className="space-y-3">
           <a
-            href="mailto:support@brockins.com?subject=BrokUW%20Access%20Request"
+            href="mailto:info@brockpartners.com"
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
           >
             <Mail className="h-4 w-4" />
             Request Access
           </a>
           <a
-            href="tel:+18005551234"
+            href="tel:+16628443300"
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
           >
             <Phone className="h-4 w-4" />
