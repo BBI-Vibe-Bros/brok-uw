@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminRouteClient } from "@/lib/supabase/server";
 import { requireAdminAuth } from "@/lib/auth/admin";
 import { logAudit } from "@/lib/audit/log";
-import { isAdminDocumentType } from "@/lib/documents/document-types";
+import { isAdminDocumentType, ADMIN_DOCUMENT_TYPES } from "@/lib/documents/document-types";
 
 const DEFAULT_BUCKET = "uw-documents";
 const ALLOWED_TYPES = new Set([
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
   if (!isAdminDocumentType(documentType)) {
     return NextResponse.json(
       {
-        error: `Invalid document_type. Allowed: uw_guide, medsupp_application.`,
+        error: `Invalid document_type. Allowed: ${ADMIN_DOCUMENT_TYPES.join(", ")}.`,
       },
       { status: 400 }
     );

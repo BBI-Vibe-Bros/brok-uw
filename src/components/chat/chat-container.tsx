@@ -6,13 +6,13 @@ import { MessageBubble, type ChatMessage } from "./message-bubble";
 import { GuidedIntake, type GuidedAnswers } from "./guided-intake";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { ClipboardList, MessageSquare } from "lucide-react";
+import { ClipboardList, MessageSquare, HelpCircle } from "lucide-react";
 
 const WELCOME_MESSAGE: ChatMessage = {
   id: "welcome",
   role: "assistant",
   content:
-    "Hey — I'm here to help you think through Med Supp underwriting. Just tell me about your client in whatever way's easiest.\n\nFor example:\n\"65-year-old woman in Texas, AFib, on Eliquis\"\n\nI'll bounce it against what we know for different carriers and spell it out in plain English. Ask me anything.",
+    "Hey — I'm your underwriting sidekick. Ask me anything about Med Supp underwriting, or drop a client scenario and I'll run it across carriers for you.\n\nYou can be as casual as you want — \"got a 68yo diabetic in Ohio\" works just as well as a full write-up.",
 };
 
 export function ChatContainer({ embed = false }: { embed?: boolean }) {
@@ -21,13 +21,16 @@ export function ChatContainer({ embed = false }: { embed?: boolean }) {
   const conversationIdRef = useRef<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [guidedActive, setGuidedActive] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
+    // Scroll the viewport to the latest content (messages, typing indicator, guided intake).
+    // requestAnimationFrame lets layout settle so ScrollArea measures the new bottom.
+    const id = requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [messages, isLoading, guidedActive]);
 
   const handleSend = useCallback(async (content: string) => {
     const userMessage: ChatMessage = {
@@ -113,14 +116,23 @@ export function ChatContainer({ embed = false }: { embed?: boolean }) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <ScrollArea className="min-h-0 flex-1" ref={scrollRef}>
+      <ScrollArea className="min-h-0 flex-1 max-md:[&_[data-slot=scroll-area-scrollbar]]:hidden max-md:[&_[data-slot=scroll-area-corner]]:hidden">
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
           {messages.map((message) => (
             <MessageBubble key={message.id} message={message} />
           ))}
 
           {showQuickActions && (
-            <div className="flex flex-wrap gap-2 ml-11">
+            <div className="ml-0 flex min-w-0 max-w-full flex-wrap gap-2 sm:ml-11">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => handleSend("What can you help me with?")}
+              >
+                <HelpCircle className="mr-1.5 h-3.5 w-3.5" />
+                What can you do?
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -134,7 +146,7 @@ export function ChatContainer({ embed = false }: { embed?: boolean }) {
                 variant="outline"
                 size="sm"
                 className="text-xs"
-                onClick={() => handleSend("Which carriers can you help me compare?")}
+                onClick={() => handleSend("Which carriers do you cover?")}
               >
                 <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
                 Who do you cover?
@@ -143,7 +155,7 @@ export function ChatContainer({ embed = false }: { embed?: boolean }) {
           )}
 
           {guidedActive && !isLoading && (
-            <div className="ml-11">
+            <div className="ml-0 min-w-0 max-w-full sm:ml-11">
               <GuidedIntake
                 onComplete={handleGuidedComplete}
                 onCancel={handleGuidedCancel}
@@ -165,12 +177,15 @@ export function ChatContainer({ embed = false }: { embed?: boolean }) {
               </div>
             </div>
           )}
+
+          <div ref={messagesEndRef} className="h-px shrink-0" aria-hidden />
         </div>
       </ScrollArea>
 
       <ChatInput
         onSend={handleSend}
         disabled={isLoading}
+        autoFocus={!embed}
         placeholder="What's going on with your client?"
       />
     </div>

@@ -7,9 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   DOCUMENT_TYPE_LABELS,
-  DOCUMENT_TYPE_MEDSUPP_APPLICATION,
-  DOCUMENT_TYPE_UW_GUIDE,
   ADMIN_DOCUMENT_TYPES,
+  DOC_TYPE_META,
   type AdminDocumentType,
 } from "@/lib/documents/document-types";
 
@@ -163,7 +162,8 @@ export function IngestionWizard() {
   const [showNewCarrier, setShowNewCarrier] = useState(false);
 
   /* step: upload */
-  const [documentKind, setDocumentKind] = useState<AdminDocumentType>(DOCUMENT_TYPE_UW_GUIDE);
+  const [documentKind, setDocumentKind] = useState<AdminDocumentType>("uw_guide");
+  const [referenceOnly, setReferenceOnly] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [effectiveDate, setEffectiveDate] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -268,7 +268,8 @@ export function IngestionWizard() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
       setDocumentId(data.document.id);
-      if (documentKind === DOCUMENT_TYPE_MEDSUPP_APPLICATION) {
+      const meta = DOC_TYPE_META[documentKind];
+      if (!meta.canExtract || referenceOnly) {
         setStep("application_publish");
       } else {
         setStep("extracting");
@@ -362,7 +363,11 @@ export function IngestionWizard() {
       const res = await fetch(`/api/admin/documents/${documentId}/publish-application`, { method: "POST" });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Publish failed");
-      setReviewMessage("Agents can ask the chat for this application (e.g. \u201Csend me the Med Supp application\u201D).");
+      setReviewMessage(
+        DOC_TYPE_META[documentKind].isDownloadable
+          ? `Published! Agents can request this ${DOC_TYPE_META[documentKind].label} in chat.`
+          : `Published! This ${DOC_TYPE_META[documentKind].label} is now available as a reference.`
+      );
       setStep("done");
       void loadCarriers();
     } catch (e) {
@@ -407,29 +412,32 @@ export function IngestionWizard() {
     setSelected(new Set());
     setReviewMessage(null);
     setError(null);
-    setDocumentKind(DOCUMENT_TYPE_UW_GUIDE);
+    setDocumentKind("uw_guide");
+    setReferenceOnly(false);
     void loadCarriers();
   }
 
   /* ─── step indicator ─── */
 
+  const willExtract = DOC_TYPE_META[documentKind].canExtract && !referenceOnly;
+
   const steps: { key: Step; label: string }[] = useMemo(() => {
-    if (documentKind === DOCUMENT_TYPE_MEDSUPP_APPLICATION) {
+    if (willExtract) {
       return [
         { key: "carrier", label: "Carrier" },
         { key: "upload", label: "Upload" },
-        { key: "application_publish", label: "Publish" },
+        { key: "extracting", label: "Extract" },
+        { key: "review", label: "Review" },
         { key: "done", label: "Done" },
       ];
     }
     return [
       { key: "carrier", label: "Carrier" },
       { key: "upload", label: "Upload" },
-      { key: "extracting", label: "Extract" },
-      { key: "review", label: "Review" },
+      { key: "application_publish", label: "Publish" },
       { key: "done", label: "Done" },
     ];
-  }, [documentKind]);
+  }, [willExtract]);
 
   const stepIndex = Math.max(
     0,
@@ -568,9 +576,20 @@ export function IngestionWizard() {
                     options={docTypeOptions}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Guides go through rule extraction. Applications are stored for agents to download from chat (no UW
-                    parsing).
+                    {DOC_TYPE_META[documentKind].canExtract
+                      ? "This type supports rule extraction. You can also store it as reference-only."
+                      : "This type is stored as a downloadable reference — no rule extraction."}
                   </p>
+                  {DOC_TYPE_META[documentKind].canExtract && (
+                    <label className="flex items-center gap-2 text-xs pt-1 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={referenceOnly}
+                        onChange={(e) => setReferenceOnly(e.target.checked)}
+                      />
+                      <span>Reference only (skip rule extraction)</span>
+                    </label>
+                  )}
                 </div>
 
                 <div className="pt-2">
@@ -590,13 +609,12 @@ export function IngestionWizard() {
           <CardContent className="pt-6 space-y-6">
             <div>
               <h2 className="text-lg font-semibold mb-1">
-                Upload {documentKind === DOCUMENT_TYPE_MEDSUPP_APPLICATION ? "Application" : "Guide"} for{" "}
-                {selectedCarrier?.name}
+                Upload {DOC_TYPE_META[documentKind].label} for {selectedCarrier?.name}
               </h2>
               <p className="text-sm text-muted-foreground">
-                {documentKind === DOCUMENT_TYPE_MEDSUPP_APPLICATION
-                  ? "PDF, Word, or DOCX. After upload you'll publish it so chat can offer a download link."
-                  : "PDF (or Word). We'll extract rules in the next step."}
+                {willExtract
+                  ? "PDF (or Word). We'll extract rules in the next step."
+                  : "PDF, Word, or DOCX. After upload you'll publish it so chat can serve it."}
               </p>
             </div>
 
@@ -622,7 +640,7 @@ export function IngestionWizard() {
               </div>
               <div className="flex gap-2">
                 <Button type="submit" disabled={!file || uploading}>
-                  {uploading ? "Uploading…" : documentKind === DOCUMENT_TYPE_MEDSUPP_APPLICATION ? "Upload" : "Upload & Extract"}
+                  {uploading ? "Uploading…" : willExtract ? "Upload & Extract" : "Upload"}
                 </Button>
                 <Button type="button" variant="ghost" onClick={() => setStep("carrier")}>
                   Back
@@ -633,20 +651,22 @@ export function IngestionWizard() {
         </Card>
       )}
 
-      {/* ─── APPLICATION: publish for chat ─── */}
+      {/* ─── PUBLISH (downloadable / reference-only docs) ─── */}
       {step === "application_publish" && (
         <Card>
           <CardContent className="pt-6 space-y-5">
             <div>
-              <h2 className="text-lg font-semibold mb-1">Application Uploaded</h2>
+              <h2 className="text-lg font-semibold mb-1">{DOC_TYPE_META[documentKind].label} Uploaded</h2>
               <p className="text-sm text-muted-foreground">
                 {file?.name ? (
                   <>
-                    <span className="font-medium text-foreground">{file.name}</span> is in storage. Publish so agents can
-                    ask the chat for this carrier&apos;s Med Supp application (signed download link).
+                    <span className="font-medium text-foreground">{file.name}</span> is in storage.
+                    {DOC_TYPE_META[documentKind].isDownloadable
+                      ? " Publish so agents can request this document in chat."
+                      : " Publish to make it available as a reference."}
                   </>
                 ) : (
-                  "File is in storage. Publish to enable chat downloads."
+                  "File is in storage. Publish to make it available."
                 )}
               </p>
             </div>
@@ -775,12 +795,10 @@ export function IngestionWizard() {
               </svg>
             </div>
             <h2 className="text-lg font-semibold">
-              {documentKind === DOCUMENT_TYPE_MEDSUPP_APPLICATION ? "Application Live" : "Guide Published"}
+              {DOC_TYPE_META[documentKind].label} {willExtract ? "Published" : "Live"}
             </h2>
             {reviewMessage && <p className="text-sm text-muted-foreground">{reviewMessage}</p>}
-            <Button onClick={startOver}>
-              {documentKind === DOCUMENT_TYPE_MEDSUPP_APPLICATION ? "Add Another Document" : "Ingest Another Guide"}
-            </Button>
+            <Button onClick={startOver}>Add Another Document</Button>
           </CardContent>
         </Card>
       )}

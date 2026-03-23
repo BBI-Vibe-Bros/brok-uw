@@ -100,21 +100,21 @@ export function GuidedIntake({ onComplete, onCancel }: GuidedIntakeProps) {
   const skip = useCallback(() => advance(""), [advance]);
 
   return (
-    <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/60 p-4 text-sm">
-      <div className="flex items-center justify-between">
+    <div className="min-w-0 space-y-3 rounded-xl border border-blue-200 bg-blue-50/60 p-4 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="text-xs font-medium text-blue-600">
           Step {stepIdx + 1} of {STEPS.length}
         </span>
         <button
           type="button"
           onClick={onCancel}
-          className="text-xs text-gray-400 hover:text-gray-600"
+          className="shrink-0 text-xs text-gray-400 hover:text-gray-600"
         >
           Cancel
         </button>
       </div>
 
-      <p className="font-medium text-gray-900">{step.question}</p>
+      <p className="break-words font-medium text-gray-900">{step.question}</p>
 
       {"choices" in step && step.choices ? (
         <div className="flex flex-wrap gap-2">
@@ -131,7 +131,7 @@ export function GuidedIntake({ onComplete, onCancel }: GuidedIntakeProps) {
         </div>
       ) : (
         <form
-          className="flex gap-2"
+          className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end sm:gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             advance(inputValue.trim());
@@ -139,19 +139,21 @@ export function GuidedIntake({ onComplete, onCancel }: GuidedIntakeProps) {
         >
           <input
             autoFocus
-            className="flex-1 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            className="min-w-0 w-full flex-1 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             placeholder={step.placeholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
           />
-          <Button type="submit" size="sm" disabled={!inputValue.trim()}>
-            Next
-          </Button>
-          {step.skipLabel && (
-            <Button type="button" size="sm" variant="ghost" onClick={skip}>
-              {step.skipLabel}
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:shrink-0">
+            <Button type="submit" size="sm" disabled={!inputValue.trim()}>
+              Next
             </Button>
-          )}
+            {step.skipLabel && (
+              <Button type="button" size="sm" variant="ghost" onClick={skip}>
+                {step.skipLabel}
+              </Button>
+            )}
+          </div>
         </form>
       )}
 

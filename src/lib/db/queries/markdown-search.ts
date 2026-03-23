@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StructuredQuery } from "@/lib/ai/types";
+import { EXTRACTABLE_DOC_TYPES } from "@/lib/documents/document-types";
 
 export interface MarkdownHit {
   carrier_id: string;
@@ -58,13 +59,19 @@ export async function searchMarkdownFallback(
   const { data: docs, error } = await supabase
     .from("source_documents")
     .select("id, carrier_id, filename, effective_date, extracted_markdown, carriers(name)")
-    .eq("document_type", "uw_guide")
+    .in("document_type", EXTRACTABLE_DOC_TYPES)
     .eq("status", "processed")
     .not("extracted_markdown", "is", null);
 
   if (error || !docs?.length) return [];
 
-  const hits: MarkdownHit[] = [];
+  const byCarrier = new Map<string, {
+    carrier_name: string;
+    documents: string[];
+    filenames: string[];
+    effective_date: string | null;
+    snippets: string[];
+  }>();
 
   for (const doc of docs) {
     if (excludeCarrierIds.includes(doc.carrier_id)) continue;
@@ -85,13 +92,35 @@ export async function searchMarkdownFallback(
 
     const snippets = extractSnippets(md, matched, 6);
 
+    const existing = byCarrier.get(doc.carrier_id);
+    if (existing) {
+      existing.documents.push(doc.id as string);
+      existing.filenames.push(doc.filename as string);
+      if (!existing.effective_date && doc.effective_date) {
+        existing.effective_date = doc.effective_date as string;
+      }
+      const budget = 10 - existing.snippets.length;
+      if (budget > 0) existing.snippets.push(...snippets.slice(0, budget));
+    } else {
+      byCarrier.set(doc.carrier_id, {
+        carrier_name: carrierName,
+        documents: [doc.id as string],
+        filenames: [doc.filename as string],
+        effective_date: (doc.effective_date as string) ?? null,
+        snippets,
+      });
+    }
+  }
+
+  const hits: MarkdownHit[] = [];
+  for (const [carrierId, entry] of byCarrier) {
     hits.push({
-      carrier_id: doc.carrier_id,
-      carrier_name: carrierName,
-      document_id: doc.id as string,
-      filename: doc.filename as string,
-      effective_date: (doc.effective_date as string) ?? null,
-      snippets,
+      carrier_id: carrierId,
+      carrier_name: entry.carrier_name,
+      document_id: entry.documents[0],
+      filename: entry.filenames.join(", "),
+      effective_date: entry.effective_date,
+      snippets: entry.snippets,
     });
   }
 

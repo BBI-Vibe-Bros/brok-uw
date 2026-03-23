@@ -1,5 +1,5 @@
 import { extractWithMarker } from "@/lib/marker/client";
-import { DOCUMENT_TYPE_MEDSUPP_APPLICATION } from "@/lib/documents/document-types";
+import { DOC_TYPE_META, type AdminDocumentType } from "@/lib/documents/document-types";
 import { parseDrugRulesFromMarkdown, parseRulesFromMarkdown } from "@/lib/ingestion/extract-document";
 import {
   mergeParsedDrugs,
@@ -45,9 +45,11 @@ export async function runExtractionForDocument(
     throw new Error("Document not found");
   }
 
-  if (document.document_type === DOCUMENT_TYPE_MEDSUPP_APPLICATION) {
+  const docType = document.document_type as AdminDocumentType;
+  const meta = DOC_TYPE_META[docType];
+  if (meta && !meta.canExtract) {
     throw new Error(
-      "Med Supp applications are not rule-extracted. In admin, use “Make available in chat” instead."
+      `${meta.label} documents are not rule-extracted. Use "Make available in chat" instead.`
     );
   }
 

@@ -6,6 +6,7 @@ type AuditAction =
   | "signup"
   | "admin.upload"
   | "admin.publish_application"
+  | "admin.publish_document"
   | "admin.approve_rule"
   | "admin.reject_rule"
   | "admin.extraction";

@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/auth/admin";
 import { createAdminRouteClient } from "@/lib/supabase/server";
 import { logAudit } from "@/lib/audit/log";
-import { DOCUMENT_TYPE_MEDSUPP_APPLICATION } from "@/lib/documents/document-types";
+import { DOC_TYPE_META, type AdminDocumentType } from "@/lib/documents/document-types";
 
 /**
- * Mark a Med Supp application PDF as available to agents in chat (no rule extraction).
+ * Mark a document as available/published (no rule extraction).
+ * Works for any downloadable or reference-only document type.
  */
 export async function POST(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const auth = await requireAdminAuth();
@@ -25,16 +26,17 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ i
     return NextResponse.json({ error: "Document not found" }, { status: 404 });
   }
 
-  if (doc.document_type !== DOCUMENT_TYPE_MEDSUPP_APPLICATION) {
-    return NextResponse.json({ error: "Only Med Supp application uploads can use this action" }, { status: 400 });
+  const meta = DOC_TYPE_META[doc.document_type as AdminDocumentType];
+  if (meta?.canExtract && doc.status !== "uploaded" && doc.status !== "failed") {
+    return NextResponse.json(
+      { error: "Extractable docs should go through the extraction flow instead." },
+      { status: 400 }
+    );
   }
 
   if (doc.status !== "uploaded" && doc.status !== "failed") {
     return NextResponse.json(
-      {
-        error:
-          "Application must be freshly uploaded (or failed recoverable) to publish — check Documents in admin or upload again.",
-      },
+      { error: "Document must be freshly uploaded (or failed) to publish. Upload again if needed." },
       { status: 400 }
     );
   }
@@ -44,7 +46,8 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ i
     .update({
       status: "processed",
       marker_json: {
-        agent_download: true,
+        agent_download: meta?.isDownloadable ?? false,
+        reference_only: meta?.canExtract ? true : false,
         activated_at: now,
         activated_by: auth.userId,
       },
@@ -55,8 +58,9 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ i
     return NextResponse.json({ error: upErr.message }, { status: 500 });
   }
 
-  logAudit(supabase, auth.userId, "admin.publish_application", "source_document", documentId, {
+  logAudit(supabase, auth.userId, "admin.publish_document", "source_document", documentId, {
     carrier_id: doc.carrier_id,
+    document_type: doc.document_type,
   }).catch(() => {});
 
   return NextResponse.json({ success: true });

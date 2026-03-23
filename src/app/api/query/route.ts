@@ -3,9 +3,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminRouteClient, createClient } from "@/lib/supabase/server";
 import { parseUserQuery } from "@/lib/ai/prompts/parse-query";
 import { explainResults } from "@/lib/ai/prompts/explain-results";
+import { generateConversationalResponse } from "@/lib/ai/prompts/conversational-response";
+import { gatherChatContext } from "@/lib/db/queries/context-for-chat";
 import { searchDrugRules } from "@/lib/db/queries/drug-search";
 import { searchRules } from "@/lib/db/queries/rules-search";
-import { getLatestMedsuppApplicationForCarrier } from "@/lib/db/queries/medsupp-applications";
+import { getLatestMedsuppApplicationForCarrier, getLatestDownloadableDoc, getAllDownloadableDocsForCarrier } from "@/lib/db/queries/medsupp-applications";
+import { DOCUMENT_TYPE_LABELS, DOC_TYPE_META, type AdminDocumentType } from "@/lib/documents/document-types";
 import { resolveCarrierMention } from "@/lib/carriers/resolve-carrier-mention";
 import { createSignedDownloadUrl } from "@/lib/storage/signed-download-url";
 import { searchMarkdownFallback } from "@/lib/db/queries/markdown-search";
@@ -18,6 +21,7 @@ import type { CarrierResult } from "@/types/chat-results";
 
 function summarizeScenario(structured: StructuredQuery, rawMessage: string): string {
   const parts: string[] = [];
+  if (structured.carrier_filter.length) parts.push(`Carriers: ${structured.carrier_filter.join(", ")}`);
   if (structured.state) parts.push(`State: ${structured.state}`);
   if (structured.age != null) parts.push(`Age: ${structured.age}`);
   if (structured.gender) parts.push(`Gender: ${structured.gender}`);
@@ -29,29 +33,99 @@ function summarizeScenario(structured: StructuredQuery, rawMessage: string): str
   return parts.join(". ");
 }
 
-function wantsCarrierList(message: string): boolean {
-  const m = message.toLowerCase();
-  return (
-    (m.includes("carrier") && (m.includes("available") || m.includes("list") || m.includes("what") || m.includes("have"))) ||
-    m.includes("which carriers") ||
-    m.includes("guidelines for")
-  );
+/**
+ * Resolve carrier_filter names to IDs via fuzzy match against the carriers table.
+ * Returns a Set of matching carrier IDs (empty = no filter).
+ */
+async function resolveCarrierFilter(
+  svc: SupabaseClient,
+  filterNames: string[]
+): Promise<Set<string>> {
+  if (!filterNames.length) return new Set();
+
+  const { data: carriers } = await svc.from("carriers").select("id, name").order("name");
+  if (!carriers?.length) return new Set();
+
+  const ids = new Set<string>();
+  for (const wanted of filterNames) {
+    const w = wanted.toLowerCase().trim();
+    for (const c of carriers) {
+      if (c.name.toLowerCase().includes(w) || w.includes(c.name.toLowerCase())) {
+        ids.add(c.id);
+      }
+    }
+  }
+  return ids;
+}
+
+function filterResultsByCarrier(results: CarrierResult[], allowedIds: Set<string>): CarrierResult[] {
+  if (!allowedIds.size) return results;
+  return results.filter((r) => allowedIds.has(r.carrier_id));
+}
+
+/**
+ * Pull the most recent structured_query from conversation history.
+ * The API stores it on assistant messages; the client sends back content strings,
+ * so we look for the last assistant message that was a JSON-parseable structured query
+ * stored alongside the results.  Alternatively, we check if the client forwarded it.
+ */
+function extractLastStructuredQuery(
+  history: { role: string; content: string }[]
+): StructuredQuery | null {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const h = history[i];
+    if (h.role !== "assistant") continue;
+    // The client doesn't forward structured_query in conversation_history content.
+    // But the server persists it; look for a structured query embedded in the messages table.
+    // For now, we can't recover it from plain text, so return null.
+    // The follow-up path still works because the parser extracts what it can from conversation context.
+  }
+  return null;
+}
+
+/**
+ * Merge a follow-up parse result with the prior structured query.
+ * New non-null/non-empty fields override; arrays are replaced if non-empty.
+ */
+function mergeFollowup(prior: StructuredQuery, followup: StructuredQuery): StructuredQuery {
+  return {
+    intent: "client_scenario",
+    state: followup.state ?? prior.state,
+    age: followup.age ?? prior.age,
+    gender: followup.gender ?? prior.gender,
+    conditions: followup.conditions.length > 0 ? followup.conditions : prior.conditions,
+    medications: followup.medications.length > 0 ? followup.medications : prior.medications,
+    carrier_filter: followup.carrier_filter.length > 0 ? followup.carrier_filter : prior.carrier_filter,
+    height_inches: followup.height_inches ?? prior.height_inches,
+    weight_lbs: followup.weight_lbs ?? prior.weight_lbs,
+    tobacco_use: followup.tobacco_use ?? prior.tobacco_use,
+    additional_context: followup.additional_context ?? prior.additional_context,
+    missing_fields: [],
+    document_request: followup.document_request ?? prior.document_request,
+  };
 }
 
 /** If the model omits `document_request`, still catch obvious app/download phrasing. */
-function heuristicMedsuppApplicationRequest(message: string): boolean {
+function heuristicDocumentRequest(message: string): { kind: "medsupp_application" | "rate_sheet" | "producer_guide" } | null {
   const m = message.toLowerCase();
   const intent = /(send|give|get|download|link|need|where is|file|copy of|pdf|attach)/i.test(message);
-  const wantsArtifact =
-    m.includes("application") || m.includes("enrollment form") || /\bapp\b/i.test(m);
-  const productCue =
-    m.includes("med supp") ||
-    m.includes("medsupp") ||
-    m.includes("medicare supplement") ||
-    m.includes("medicare supp") ||
-    (m.includes("medicare") && m.includes("supp")) ||
+  if (!intent) return null;
+
+  if ((m.includes("rate") && m.includes("sheet")) || m.includes("rate card") || m.includes("pricing")) {
+    return { kind: "rate_sheet" };
+  }
+  if (m.includes("producer guide") || m.includes("agent guide") || m.includes("broker guide")) {
+    return { kind: "producer_guide" };
+  }
+
+  const wantsApp = m.includes("application") || m.includes("enrollment form") || /\bapp\b/i.test(m);
+  const medsuppCue =
+    m.includes("med supp") || m.includes("medsupp") || m.includes("medicare supplement") ||
+    m.includes("medicare supp") || (m.includes("medicare") && m.includes("supp")) ||
     (m.includes("application") && m.includes("pdf"));
-  return intent && wantsArtifact && productCue;
+  if (wantsApp && medsuppCue) return { kind: "medsupp_application" };
+
+  return null;
 }
 
 export async function POST(request: NextRequest) {
@@ -92,62 +166,124 @@ export async function POST(request: NextRequest) {
   let conversationId = conversationIdInput;
 
   try {
-    if (wantsCarrierList(message)) {
-      const { data: carriers } = await svc.from("carriers").select("name, slug, states_available").order("name");
-      const names = (carriers ?? []).map((c) => `• ${c.name}`);
-      const assistantText =
-        names.length > 0
-          ? `Here are the carriers I can help you compare right now:\n\n${names.join("\n")}\n\nAsk me about a specific client scenario whenever you're ready.`
-          : "I'm not seeing any carriers on file yet — once those are added, I can walk through scenarios with you.";
-
-      const { convId } = await persistExchange(svc, user.id, conversationId, message, assistantText, null, []);
-      return NextResponse.json({
-        message: assistantText,
-        results: [] as CarrierResult[],
-        conversation_id: convId,
-        structured_query: null,
-      });
-    }
-
     let structured: StructuredQuery;
     try {
       structured = await parseUserQuery(message, conversationHistory);
-      if (!structured.document_request && heuristicMedsuppApplicationRequest(message)) {
-        structured = {
-          ...structured,
-          document_request: { kind: "medsupp_application", carrier_mention: null },
-        };
+      if (
+        structured.intent !== "document_request" &&
+        !structured.document_request
+      ) {
+        const heuristic = heuristicDocumentRequest(message);
+        if (heuristic) {
+          structured = {
+            ...structured,
+            intent: "document_request",
+            document_request: { kind: heuristic.kind, carrier_mention: null },
+          };
+        }
       }
     } catch (err) {
       const hasKey =
         Boolean(process.env.OPENAI_API_KEY?.trim()) || Boolean(process.env.ANTHROPIC_API_KEY?.trim());
       if (!hasKey) {
         return NextResponse.json(
-          {
-            error:
-              "I'm not able to think that one through yet — the app needs an AI key configured on the server side. If you're not the one who set this up flag someone who is.",
-          },
+          { error: "AI key not configured — flag whoever set this up." },
           { status: 503 }
         );
       }
       console.error("parseUserQuery", err);
-      return NextResponse.json(
-        {
-          error:
-            "Hmm — I tripped on that one. Mind taking another swing with the client's conditions and meds in everyday language?",
-        },
-        { status: 502 }
-      );
+      const fallback = await generateConversationalResponse(message, conversationHistory);
+      const { convId } = await persistExchange(svc, user.id, conversationId, message, fallback, null, []);
+      return NextResponse.json({
+        message: fallback,
+        results: [] as CarrierResult[],
+        conversation_id: convId,
+        structured_query: null,
+      });
     }
 
-    if (structured.document_request?.kind === "medsupp_application") {
+    // --- Greeting: quick friendly reply ---
+    if (structured.intent === "greeting") {
+      const reply = await generateConversationalResponse(message, conversationHistory);
+      const { convId } = await persistExchange(svc, user.id, conversationId, message, reply, structured, []);
+      return NextResponse.json({
+        message: reply,
+        results: [] as CarrierResult[],
+        conversation_id: convId,
+        structured_query: structured,
+      });
+    }
+
+    // --- General question: check for searchable terms first ---
+    if (structured.intent === "general_question") {
+      const hasTerms = structured.conditions.length > 0 || structured.medications.length > 0;
+
+      if (hasTerms) {
+        const carrierIds = await resolveCarrierFilter(svc, structured.carrier_filter);
+
+        const [rules, drugs] = await Promise.all([
+          searchRules(svc, structured),
+          searchDrugRules(svc, structured),
+        ]);
+
+        let results = scoreCarrierResults(structured, rules, drugs);
+
+        const structuredCarrierIds = results.map((r) => r.carrier_id);
+        const mdHits = await searchMarkdownFallback(svc, structured, structuredCarrierIds);
+        if (mdHits.length) {
+          const scenarioForSynth = summarizeScenario(structured, message);
+          const mdResults = await synthesizeMarkdownHits(scenarioForSynth, mdHits);
+          results = [...results, ...mdResults];
+        }
+
+        const vOrder: Record<string, number> = { decline: 0, conditional: 1, likely_approve: 2, unknown: 3 };
+        results.sort((a, b) => (vOrder[a.verdict] ?? 9) - (vOrder[b.verdict] ?? 9) || b.confidence - a.confidence);
+        results = filterResultsByCarrier(results, carrierIds);
+
+        if (results.length > 0) {
+          const terms = [...structured.conditions, ...structured.medications].join(", ");
+          const carrierNote = structured.carrier_filter.length
+            ? ` Focused on: ${structured.carrier_filter.join(", ")}.`
+            : "";
+          const generalScenario = `General underwriting question about: ${terms}.${carrierNote} ${structured.additional_context ?? message}`;
+          const assistantMessage = await explainResults(generalScenario, results);
+
+          const { convId } = await persistExchange(svc, user.id, conversationId, message, assistantMessage, structured, results);
+          return NextResponse.json({
+            message: assistantMessage,
+            results,
+            conversation_id: convId,
+            structured_query: structured,
+          });
+        }
+      }
+
+      const dbContext = await gatherChatContext(svc, message);
+      const reply = await generateConversationalResponse(message, conversationHistory, dbContext);
+      const { convId } = await persistExchange(svc, user.id, conversationId, message, reply, structured, []);
+      return NextResponse.json({
+        message: reply,
+        results: [] as CarrierResult[],
+        conversation_id: convId,
+        structured_query: structured,
+      });
+    }
+
+    // --- Document request: download flow (applications, rate sheets, producer guides) ---
+    if (
+      structured.intent === "document_request" ||
+      structured.document_request
+    ) {
+      const reqKind = (structured.document_request?.kind ?? "medsupp_application") as AdminDocumentType;
+      const kindLabel = DOCUMENT_TYPE_LABELS[reqKind] ?? reqKind;
+
       const carrier = await resolveCarrierMention(
         svc,
-        structured.document_request.carrier_mention,
+        structured.document_request?.carrier_mention ?? null,
         message
       );
       if (!carrier) {
-        const ask = "Which carrier's Med Supp application do you need? (Name only is fine.)";
+        const ask = `Which carrier's ${kindLabel} do you need? (Name only is fine.)`;
         const { convId } = await persistExchange(svc, user.id, conversationId, message, ask, structured, []);
         return NextResponse.json({
           message: ask,
@@ -157,9 +293,30 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const appDoc = await getLatestMedsuppApplicationForCarrier(svc, carrier.id);
-      if (!appDoc) {
-        const sorry = `No **${carrier.name}** Med Supp application is on file yet — ask your admin to upload it.`;
+      let doc = await getLatestDownloadableDoc(svc, carrier.id, reqKind);
+      let docCarrierName = carrier.name;
+
+      if (!doc) {
+        const { data: relatedCarriers } = await svc
+          .from("carriers")
+          .select("id, name")
+          .neq("id", carrier.id)
+          .or(`name.ilike.%${carrier.name}%,name.ilike.${carrier.name.split(" ")[0]}%`);
+
+        if (relatedCarriers?.length) {
+          for (const rc of relatedCarriers) {
+            const found = await getLatestDownloadableDoc(svc, rc.id, reqKind);
+            if (found) {
+              doc = found;
+              docCarrierName = rc.name;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!doc) {
+        const sorry = `No **${carrier.name}** ${kindLabel} is on file yet — ask your admin to upload it.`;
         const { convId } = await persistExchange(svc, user.id, conversationId, message, sorry, structured, []);
         return NextResponse.json({
           message: sorry,
@@ -169,10 +326,10 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const url = await createSignedDownloadUrl(svc, appDoc.storage_path, 3600);
+      const url = await createSignedDownloadUrl(svc, doc.storage_path, 3600);
       const reply = url
-        ? `**${carrier.name}** Med Supp app: [Download ${appDoc.filename}](${url}) (link ~1 hr).`
-        : `**${carrier.name}** app is on file but the download link failed — try again shortly.`;
+        ? `**${docCarrierName}** ${kindLabel}: [Download ${doc.filename}](${url}) (link ~1 hr).`
+        : `**${docCarrierName}** ${kindLabel} is on file but the download link failed — try again shortly.`;
 
       const { convId } = await persistExchange(svc, user.id, conversationId, message, reply, structured, []);
       return NextResponse.json({
@@ -183,29 +340,42 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // --- Follow-up: merge new info with the last structured query from history ---
+    if (structured.intent === "followup") {
+      const lastStructured = extractLastStructuredQuery(conversationHistory);
+      if (lastStructured) {
+        structured = mergeFollowup(lastStructured, structured);
+      }
+      // If merged query still has no search terms, fall through to conversational
+      const hasTerms = structured.conditions.length > 0 || structured.medications.length > 0;
+      if (!hasTerms) {
+        const reply = await generateConversationalResponse(message, conversationHistory);
+        const { convId } = await persistExchange(svc, user.id, conversationId, message, reply, structured, []);
+        return NextResponse.json({
+          message: reply,
+          results: [] as CarrierResult[],
+          conversation_id: convId,
+          structured_query: structured,
+        });
+      }
+      // Otherwise fall through to the search pipeline below
+    }
+
+    // --- Client scenario (or follow-up with search terms): run the search pipeline ---
     const hasSearchTerms = structured.conditions.length > 0 || structured.medications.length > 0;
-    if (!hasSearchTerms && structured.missing_fields.length > 0) {
-      const ask = `I'd love to help — I'm just missing a few pieces. Could you fill me in on ${structured.missing_fields.join(", ")}? Even a quick rundown of conditions or prescriptions helps.`;
-      const { convId } = await persistExchange(svc, user.id, conversationId, message, ask, structured, []);
+    if (!hasSearchTerms) {
+      // Even for client_scenario, if there's truly nothing to search, go conversational
+      const reply = await generateConversationalResponse(message, conversationHistory);
+      const { convId } = await persistExchange(svc, user.id, conversationId, message, reply, structured, []);
       return NextResponse.json({
-        message: ask,
-        results: [],
+        message: reply,
+        results: [] as CarrierResult[],
         conversation_id: convId,
         structured_query: structured,
       });
     }
 
-    if (!hasSearchTerms) {
-      const ask =
-        "Sure thing — what conditions are we working with, and any prescriptions worth calling out? Once I have that, I can stack up how different carriers might treat the case.";
-      const { convId } = await persistExchange(svc, user.id, conversationId, message, ask, structured, []);
-      return NextResponse.json({
-        message: ask,
-        results: [],
-        conversation_id: convId,
-        structured_query: structured,
-      });
-    }
+    const carrierIds = await resolveCarrierFilter(svc, structured.carrier_filter);
 
     const [rules, drugs] = await Promise.all([searchRules(svc, structured), searchDrugRules(svc, structured)]);
 
@@ -221,10 +391,11 @@ export async function POST(request: NextRequest) {
 
     const vOrder: Record<string, number> = { decline: 0, conditional: 1, likely_approve: 2, unknown: 3 };
     results.sort((a, b) => (vOrder[a.verdict] ?? 9) - (vOrder[b.verdict] ?? 9) || b.confidence - a.confidence);
+    results = filterResultsByCarrier(results, carrierIds);
 
     if (!results.length) {
       const terms = [...structured.conditions, ...structured.medications].join(", ");
-      const fallbackMsg = `I ran a pass on ${terms || "that scenario"} but didn't get a clean match back from any carrier lines. Want to try different wording, add a med name, or tell me if there's another condition on the app? I'm happy to run it again.`;
+      const fallbackMsg = `I checked ${terms || "that scenario"} but didn't find a match in any carrier's guidelines. Try different wording, add a med name, or mention another condition — happy to run it again.`;
       const { convId } = await persistExchange(svc, user.id, conversationId, message, fallbackMsg, structured, []);
       return NextResponse.json({
         message: fallbackMsg,

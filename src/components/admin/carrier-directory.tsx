@@ -2,18 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  DOCUMENT_TYPE_LABELS,
-  DOCUMENT_TYPE_MEDSUPP_APPLICATION,
-  DOCUMENT_TYPE_UW_GUIDE,
-} from "@/lib/documents/document-types";
 
 type Freshness = "ok" | "warn" | "stale" | "unknown";
 
-/** One visual row: either the UW guide summary or a single Med Supp application file. */
 export interface DirectoryRow {
   row_key: string;
-  row_type: typeof DOCUMENT_TYPE_UW_GUIDE | typeof DOCUMENT_TYPE_MEDSUPP_APPLICATION;
+  row_type: string;
   carrier_id: string;
   name: string;
   slug: string;
@@ -27,10 +21,11 @@ export interface DirectoryRow {
   rules_verified: number | null;
   rules_pending: number | null;
   rules_total: number | null;
-  application_filename: string | null;
-  application_document_id: string | null;
-  application_uploaded_at: string | null;
-  application_status: string | null;
+  doc_filename: string | null;
+  doc_id: string | null;
+  doc_uploaded_at: string | null;
+  doc_status: string | null;
+  doc_type_label: string;
   chat_ready: boolean | null;
 }
 
@@ -48,40 +43,24 @@ const freshnessLabels: Record<string, string> = {
   unknown: "No Guide Yet",
 };
 
-function typeLabel(row: DirectoryRow) {
-  return row.row_type === DOCUMENT_TYPE_UW_GUIDE
-    ? DOCUMENT_TYPE_LABELS[DOCUMENT_TYPE_UW_GUIDE]
-    : DOCUMENT_TYPE_LABELS[DOCUMENT_TYPE_MEDSUPP_APPLICATION];
-}
-
-function appStatusLabel(row: DirectoryRow) {
-  if (row.row_type !== DOCUMENT_TYPE_MEDSUPP_APPLICATION) return null;
-  if (row.chat_ready) {
-    return { className: "bg-blue-100 text-blue-800", text: "In Chat" };
+function statusPill(row: DirectoryRow) {
+  if (row.row_type === "uw_guide" && row.freshness) {
+    return {
+      className: freshnessColors[row.freshness],
+      text: freshnessLabels[row.freshness],
+    };
   }
-  if (row.application_status === "uploaded") {
-    return { className: "bg-amber-100 text-amber-900", text: "Not In Chat" };
-  }
-  if (row.application_status === "failed") {
-    return { className: "bg-red-100 text-red-900", text: "Failed" };
-  }
-  if (row.application_status === "processing") {
-    return { className: "bg-slate-200 text-slate-800", text: "Processing" };
-  }
-  return { className: "bg-slate-100 text-slate-700", text: row.application_status ?? "—" };
+  if (row.chat_ready) return { className: "bg-blue-100 text-blue-800", text: "In Chat" };
+  if (row.doc_status === "uploaded") return { className: "bg-amber-100 text-amber-900", text: "Not In Chat" };
+  if (row.doc_status === "failed") return { className: "bg-red-100 text-red-900", text: "Failed" };
+  if (row.doc_status === "processing") return { className: "bg-slate-200 text-slate-800", text: "Processing" };
+  if (row.doc_status === "processed") return { className: "bg-blue-100 text-blue-800", text: "Ready" };
+  return null;
 }
 
 function referenceCell(row: DirectoryRow) {
-  if (row.row_type === DOCUMENT_TYPE_UW_GUIDE) {
-    const fn = row.guide_filename;
-    if (!fn) return "—";
-    return (
-      <span className="block max-w-[200px] sm:max-w-[280px] truncate" title={fn}>
-        {fn}
-      </span>
-    );
-  }
-  const fn = row.application_filename ?? "—";
+  const fn = row.doc_filename ?? row.guide_filename;
+  if (!fn) return "—";
   return (
     <span className="block max-w-[200px] sm:max-w-[280px] truncate" title={fn}>
       {fn}
@@ -90,43 +69,29 @@ function referenceCell(row: DirectoryRow) {
 }
 
 function uploadedDateCell(row: DirectoryRow) {
-  if (row.row_type === DOCUMENT_TYPE_UW_GUIDE) {
-    return row.last_reference_date
-      ? new Date(row.last_reference_date).toLocaleDateString()
-      : "—";
-  }
-  return row.application_uploaded_at
-    ? new Date(row.application_uploaded_at).toLocaleDateString()
-    : "—";
+  const raw = row.row_type === "uw_guide"
+    ? row.last_reference_date
+    : row.doc_uploaded_at;
+  return raw ? new Date(raw).toLocaleDateString() : "—";
 }
 
 type SortKey = "carrier" | "type" | "uploaded" | "status";
 type SortDir = "asc" | "desc";
 
-const STATUS_RANK: Record<string, number> = {
-  stale: 0,
-  warn: 1,
-  ok: 2,
-  unknown: 3,
-};
+const STATUS_RANK: Record<string, number> = { stale: 0, warn: 1, ok: 2, unknown: 3 };
 
 function uploadedTimestamp(row: DirectoryRow): number {
-  const raw =
-    row.row_type === DOCUMENT_TYPE_UW_GUIDE
-      ? row.last_reference_date
-      : row.application_uploaded_at;
+  const raw = row.row_type === "uw_guide" ? row.last_reference_date : row.doc_uploaded_at;
   if (!raw) return 0;
   const t = new Date(raw).getTime();
   return Number.isNaN(t) ? 0 : t;
 }
 
 function statusRank(row: DirectoryRow): number {
-  if (row.row_type === DOCUMENT_TYPE_UW_GUIDE) {
-    return STATUS_RANK[row.freshness ?? "unknown"] ?? 3;
-  }
+  if (row.row_type === "uw_guide") return STATUS_RANK[row.freshness ?? "unknown"] ?? 3;
   if (row.chat_ready) return 2;
-  if (row.application_status === "uploaded") return 1;
-  if (row.application_status === "failed") return 0;
+  if (row.doc_status === "uploaded") return 1;
+  if (row.doc_status === "failed") return 0;
   return 3;
 }
 
@@ -139,7 +104,7 @@ function sortRows(rows: DirectoryRow[], key: SortKey, dir: SortDir): DirectoryRo
         cmp = a.name.localeCompare(b.name);
         break;
       case "type":
-        cmp = a.row_type.localeCompare(b.row_type);
+        cmp = a.doc_type_label.localeCompare(b.doc_type_label);
         break;
       case "uploaded":
         cmp = uploadedTimestamp(a) - uploadedTimestamp(b);
@@ -215,8 +180,7 @@ export function CarrierDirectory() {
       const res = await fetch("/api/admin/staleness");
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Failed");
-      const dr = (j.directory_rows ?? []) as DirectoryRow[];
-      setRows(dr);
+      setRows((j.directory_rows ?? []) as DirectoryRow[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Load failed");
     } finally {
@@ -233,11 +197,9 @@ export function CarrierDirectory() {
   if (loading) {
     return <p className="text-sm text-muted-foreground py-8 text-center">Loading directory…</p>;
   }
-
   if (error) {
     return <p className="text-sm text-red-600 py-4">{error}</p>;
   }
-
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-8 text-center">
@@ -250,8 +212,7 @@ export function CarrierDirectory() {
     <div className="w-full min-w-0 space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
-          {carrierCount} carrier{carrierCount !== 1 ? "s" : ""} · {sorted.length} row{sorted.length !== 1 ? "s" : ""}{" "}
-          (guides + apps)
+          {carrierCount} carrier{carrierCount !== 1 ? "s" : ""} · {sorted.length} row{sorted.length !== 1 ? "s" : ""}
         </p>
         <Button type="button" variant="outline" size="sm" className="shrink-0 self-start sm:self-auto" onClick={() => void load()}>
           Refresh
@@ -261,19 +222,16 @@ export function CarrierDirectory() {
       {/* Mobile / narrow: stacked cards */}
       <div className="space-y-3 md:hidden">
         {sorted.map((r) => {
-          const appPill = appStatusLabel(r);
+          const pill = statusPill(r);
           return (
-            <div
-              key={r.row_key}
-              className="rounded-lg border bg-white p-4 text-sm shadow-sm"
-            >
+            <div key={r.row_key} className="rounded-lg border bg-white p-4 text-sm shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 pb-2 mb-2">
                 <div className="min-w-0">
                   <div className="font-medium">{r.name}</div>
                   <div className="text-xs text-muted-foreground">{r.slug}</div>
                 </div>
                 <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800">
-                  {typeLabel(r)}
+                  {r.doc_type_label}
                 </span>
               </div>
               <dl className="grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
@@ -292,20 +250,14 @@ export function CarrierDirectory() {
                 <div>
                   <dt className="text-muted-foreground">Status</dt>
                   <dd>
-                    {r.row_type === DOCUMENT_TYPE_UW_GUIDE && r.freshness ? (
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${freshnessColors[r.freshness]}`}>
-                        {freshnessLabels[r.freshness]}
+                    {pill ? (
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${pill.className}`}>
+                        {pill.text}
                       </span>
-                    ) : appPill ? (
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${appPill.className}`}>
-                        {appPill.text}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
+                    ) : "—"}
                   </dd>
                 </div>
-                {r.row_type === DOCUMENT_TYPE_UW_GUIDE && (
+                {r.row_type === "uw_guide" && (
                   <>
                     <div>
                       <dt className="text-muted-foreground">Guide uploads</dt>
@@ -343,7 +295,7 @@ export function CarrierDirectory() {
           </thead>
           <tbody>
             {sorted.map((r) => {
-              const appPill = appStatusLabel(r);
+              const pill = statusPill(r);
               return (
                 <tr key={r.row_key} className="border-b last:border-b-0 hover:bg-slate-50/60 transition-colors">
                   <td className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2.5 align-top shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
@@ -351,7 +303,7 @@ export function CarrierDirectory() {
                     <div className="text-xs text-muted-foreground">{r.slug}</div>
                   </td>
                   <td className="px-3 py-2.5 align-top whitespace-nowrap text-xs font-medium text-slate-800">
-                    {typeLabel(r)}
+                    {r.doc_type_label}
                   </td>
                   <td className="px-3 py-2.5 align-top text-muted-foreground">
                     <span className="line-clamp-2" title={r.states_available.join(", ")}>
@@ -363,26 +315,20 @@ export function CarrierDirectory() {
                     {uploadedDateCell(r)}
                   </td>
                   <td className="px-3 py-2.5 align-top">
-                    {r.row_type === DOCUMENT_TYPE_UW_GUIDE && r.freshness ? (
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${freshnessColors[r.freshness]}`}>
-                        {freshnessLabels[r.freshness]}
+                    {pill ? (
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${pill.className}`}>
+                        {pill.text}
                       </span>
-                    ) : appPill ? (
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${appPill.className}`}>
-                        {appPill.text}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
+                    ) : "—"}
                   </td>
                   <td className="px-3 py-2.5 align-top text-right tabular-nums text-muted-foreground">
-                    {r.row_type === DOCUMENT_TYPE_UW_GUIDE ? r.documents_count ?? "—" : "—"}
+                    {r.row_type === "uw_guide" ? r.documents_count ?? "—" : "—"}
                   </td>
                   <td className="px-3 py-2.5 align-top text-right tabular-nums">
-                    {r.row_type === DOCUMENT_TYPE_UW_GUIDE ? r.rules_verified ?? "—" : "—"}
+                    {r.row_type === "uw_guide" ? r.rules_verified ?? "—" : "—"}
                   </td>
                   <td className="px-3 py-2.5 align-top text-right tabular-nums">
-                    {r.row_type === DOCUMENT_TYPE_UW_GUIDE ? (
+                    {r.row_type === "uw_guide" ? (
                       r.rules_pending != null && r.rules_pending > 0 ? (
                         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
                           {r.rules_pending}
@@ -390,9 +336,7 @@ export function CarrierDirectory() {
                       ) : (
                         <span className="text-muted-foreground">0</span>
                       )
-                    ) : (
-                      "—"
-                    )}
+                    ) : "—"}
                   </td>
                 </tr>
               );
